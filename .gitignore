@@ -1,0 +1,6 @@
+.env
+_pycache_/
+*.pyc
+*.log
+history_progress.json
+pause_flag.json
