@@ -6,11 +6,10 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from keep_alive import keep_alive
 
-# Load .env variables
+# Load .env
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-# Channel IDs to exclude (won't be touched)
 EXCLUDED_CHANNEL_IDS = {
     1375034161990996019, 1375725136602333246, 1380080047532019723, 1372894052193669200,
     1382391839403016252, 1380946378611490886, 1378775988669779968, 1372950600496709732,
@@ -20,19 +19,16 @@ EXCLUDED_CHANNEL_IDS = {
     1372878262899965962
 }
 
-# Progress files
 PROGRESS_FILE = "history_progress.json"
 PAUSE_FILE = "pause_flag.json"
 
-# Intents setup
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
-intents.message_content = True  # ✅ Add this line
+intents.message_content = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Load progress
 if os.path.exists(PROGRESS_FILE):
     with open(PROGRESS_FILE, 'r') as f:
         progress_data = json.load(f)
@@ -57,11 +53,11 @@ def save_pause():
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
 
-@bot.command(name='lockhistory')
+@bot.command(name='unlockhistory')
 @commands.cooldown(1, 10, commands.BucketType.user)
 @commands.has_permissions(administrator=True)
-async def lock_read_history(ctx):
-    await ctx.send("🔐 Starting history permission lock...")
+async def unlock_read_history(ctx):
+    await ctx.send("🔓 Starting read history restoration for all roles in text channels...")
 
     pause_flag["paused"] = False
     save_pause()
@@ -72,15 +68,13 @@ async def lock_read_history(ctx):
             progress_data[guild_id] = {}
 
         for channel in guild.channels:
+            if not isinstance(channel, discord.TextChannel):
+                continue
             if channel.id in EXCLUDED_CHANNEL_IDS:
                 continue
-
             if pause_flag["paused"]:
                 await ctx.send("⏸ Process paused. Use !resume to continue.")
                 return
-
-            if not isinstance(channel, (discord.TextChannel, discord.VoiceChannel)):
-                continue
 
             channel_id = str(channel.id)
             if channel_id not in progress_data[guild_id]:
@@ -98,8 +92,8 @@ async def lock_read_history(ctx):
                         continue
 
                     overwrite = channel.overwrites_for(role)
-                    if overwrite.read_message_history is not False:
-                        overwrite.read_message_history = False
+                    if overwrite.read_message_history is not True:
+                        overwrite.read_message_history = True
                         await channel.set_permissions(role, overwrite=overwrite)
                         await asyncio.sleep(1.5)
 
@@ -111,7 +105,7 @@ async def lock_read_history(ctx):
                 print(f"❌ Error on channel {channel.name}: {e}")
                 await asyncio.sleep(2)
 
-    await ctx.send("✅ Permissions locked across all applicable channels!")
+    await ctx.send("✅ Read history restored for all applicable roles!")
 
 @bot.command(name='pause')
 @commands.cooldown(1, 5, commands.BucketType.user)
@@ -127,7 +121,7 @@ async def pause(ctx):
 async def resume(ctx):
     pause_flag["paused"] = False
     save_pause()
-    await ctx.invoke(bot.get_command("lockhistory"))
+    await ctx.invoke(bot.get_command("unlockhistory"))
 
 @bot.command(name='status')
 @commands.cooldown(1, 10, commands.BucketType.user)
@@ -167,6 +161,6 @@ async def on_command_error(ctx, error):
     else:
         raise error
 
-# Start Flask keep_alive server and run bot
+# Start keep-alive server and bot
 keep_alive()
 bot.run(DISCORD_TOKEN)
