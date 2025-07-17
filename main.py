@@ -6,10 +6,11 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from keep_alive import keep_alive
 
-# Load .env
+# Load .env token
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
+# Channel exceptions (read history will not be unlocked in these)
 EXCLUDED_CHANNEL_IDS = {
     1375034161990996019, 1375725136602333246, 1380080047532019723, 1372894052193669200,
     1382391839403016252, 1380946378611490886, 1378775988669779968, 1372950600496709732,
@@ -22,6 +23,7 @@ EXCLUDED_CHANNEL_IDS = {
 PROGRESS_FILE = "history_progress.json"
 PAUSE_FILE = "pause_flag.json"
 
+# Set intents
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
@@ -29,12 +31,14 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+# Load progress
 if os.path.exists(PROGRESS_FILE):
     with open(PROGRESS_FILE, 'r') as f:
         progress_data = json.load(f)
 else:
     progress_data = {}
 
+# Load pause flag
 if os.path.exists(PAUSE_FILE):
     with open(PAUSE_FILE, 'r') as f:
         pause_flag = json.load(f)
@@ -51,13 +55,13 @@ def save_pause():
 
 @bot.event
 async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
+    print(f"✅ Logged in as {bot.user.name} ({bot.user.id})")
 
 @bot.command(name='unlockhistory')
 @commands.cooldown(1, 10, commands.BucketType.user)
 @commands.has_permissions(administrator=True)
 async def unlock_read_history(ctx):
-    await ctx.send("🔓 Starting read history restoration for all roles in text channels...")
+    await ctx.send("🔓 Unlocking Read Message History for all roles in eligible text channels...")
 
     pause_flag["paused"] = False
     save_pause()
@@ -67,9 +71,7 @@ async def unlock_read_history(ctx):
         if guild_id not in progress_data:
             progress_data[guild_id] = {}
 
-        for channel in guild.channels:
-            if not isinstance(channel, discord.TextChannel):
-                continue
+        for channel in guild.text_channels:
             if channel.id in EXCLUDED_CHANNEL_IDS:
                 continue
             if pause_flag["paused"]:
@@ -84,28 +86,23 @@ async def unlock_read_history(ctx):
                     "total_roles_updated": 0
                 }
 
-            try:
-                for role in guild.roles:
-                    if role.is_default():
-                        continue
-                    if str(role.id) in progress_data[guild_id][channel_id]["done_roles"]:
-                        continue
+            for role in guild.roles:
+                if role.is_default():
+                    continue
+                if str(role.id) in progress_data[guild_id][channel_id]["done_roles"]:
+                    continue
 
-                    overwrite = channel.overwrites_for(role)
-                    if overwrite.read_message_history is not True:
-                        overwrite.read_message_history = True
-                        await channel.set_permissions(role, overwrite=overwrite)
-                        await asyncio.sleep(1.5)
+                overwrite = channel.overwrites_for(role)
+                if overwrite.read_message_history is not True:
+                    overwrite.read_message_history = True
+                    await channel.set_permissions(role, overwrite=overwrite)
+                    await asyncio.sleep(1.5)
 
-                    progress_data[guild_id][channel_id]["done_roles"].append(str(role.id))
-                    progress_data[guild_id][channel_id]["total_roles_updated"] += 1
-                    save_progress()
+                progress_data[guild_id][channel_id]["done_roles"].append(str(role.id))
+                progress_data[guild_id][channel_id]["total_roles_updated"] += 1
+                save_progress()
 
-            except Exception as e:
-                print(f"❌ Error on channel {channel.name}: {e}")
-                await asyncio.sleep(2)
-
-    await ctx.send("✅ Read history restored for all applicable roles!")
+    await ctx.send("✅ Finished restoring read history for all applicable roles.")
 
 @bot.command(name='pause')
 @commands.cooldown(1, 5, commands.BucketType.user)
@@ -113,7 +110,7 @@ async def unlock_read_history(ctx):
 async def pause(ctx):
     pause_flag["paused"] = True
     save_pause()
-    await ctx.send("⏸ Bot has been paused.")
+    await ctx.send("⏸ Process paused.")
 
 @bot.command(name='resume')
 @commands.cooldown(1, 5, commands.BucketType.user)
@@ -141,7 +138,7 @@ async def status(ctx):
     await ctx.send(f"📊 Progress:\n*Total Channels:* {total_channels}\n*Total Roles Updated:* {total_roles}")
 
     for i in range(0, len(lines), 10):
-        await ctx.send("\n".join(lines[i:i+10]))
+        await ctx.send("\n".join(lines[i:i + 10]))
 
 @bot.command(name='resetprogress')
 @commands.cooldown(1, 5, commands.BucketType.user)
@@ -150,17 +147,17 @@ async def reset(ctx):
     global progress_data
     progress_data = {}
     save_progress()
-    await ctx.send("♻ Progress reset.")
+    await ctx.send("♻ Progress has been reset.")
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
         await ctx.send(f"⏳ Please wait {error.retry_after:.1f}s before using this command again.")
     elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You need administrator permissions for this command.")
+        await ctx.send("❌ You need admin permissions to use this command.")
     else:
         raise error
 
-# Start keep-alive server and bot
+# Keep alive + Run
 keep_alive()
 bot.run(DISCORD_TOKEN)
